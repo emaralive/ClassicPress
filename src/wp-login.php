@@ -61,6 +61,11 @@ function login_header( $title = 'Log In', $message = '', $wp_error = null ) {
 	/* translators: Login screen title. 1: Login screen name, 2: Network or site name */
 	$login_title = sprintf( __( '%1$s &lsaquo; %2$s &#8212; ClassicPress' ), $title, $login_title );
 
+	if ( wp_is_recovery_mode() ) {
+		/* translators: %s: Login screen title. */
+		$login_title = sprintf( __( 'Recovery Mode &#8212; %s' ), $login_title );
+	}
+
 	/**
 	 * Filters the title tag content for login page.
 	 *
@@ -380,7 +385,7 @@ if ( isset($_GET['key']) )
 	$action = 'resetpass';
 
 // validate action so as to default to the login screen
-if ( !in_array( $action, array( 'postpass', 'logout', 'lostpassword', 'retrievepassword', 'resetpass', 'rp', 'register', 'login', 'confirmaction' ), true ) && false === has_filter( 'login_form_' . $action ) )
+if ( !in_array( $action, array( 'postpass', 'logout', 'lostpassword', 'retrievepassword', 'resetpass', 'rp', 'register', 'login', 'confirmaction', WP_Recovery_Mode_Link_Service::LOGIN_ACTION_ENTERED ), true ) && false === has_filter( 'login_form_' . $action ) )
 	$action = 'login';
 
 nocache_headers();
@@ -958,7 +963,9 @@ default:
 			$errors->add('registered', __('Registration complete. Please check your email.'), 'message');
 		elseif ( strpos( $redirect_to, 'about.php?updated' ) )
 			$errors->add('updated', __( '<strong>You have successfully updated ClassicPress!</strong> Please log back in to see what&#8217;s new.' ), 'message' );
-	}
+		elseif ( WP_Recovery_Mode_Link_Service::LOGIN_ACTION_ENTERED === $action )
+			$errors->add( 'enter_recovery_mode', __( 'Recovery Mode Initialized. Please log in to continue.' ), 'message' );
+}
 
 	/**
 	 * Filters the login page errors.
