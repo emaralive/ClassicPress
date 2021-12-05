@@ -397,17 +397,25 @@ function get_theme_feature_list( $api = true ) {
  *         for more information on the make-up of possible return objects depending on the value of `$action`.
  */
 function themes_api( $action, $args = array() ) {
+	// Include an unmodified $wp_version.
+	require ABSPATH . WPINC . '/version.php';
 
 	if ( is_array( $args ) ) {
 		$args = (object) $args;
 	}
 
-	if ( ! isset( $args->per_page ) ) {
-		$args->per_page = 24;
+	if ( 'query_themes' === $action ) {
+		if ( ! isset( $args->per_page ) ) {
+			$args->per_page = 24;
+		}
 	}
 
 	if ( ! isset( $args->locale ) ) {
 		$args->locale = get_user_locale();
+	}
+
+	if ( ! isset( $args->wp_version ) ) {
+		$args->wp_version = substr( $wp_version, 0, 3 ); // x.y
 	}
 
 	/**
@@ -441,21 +449,27 @@ function themes_api( $action, $args = array() ) {
 	$res = apply_filters( 'themes_api', false, $action, $args );
 
 	if ( ! $res ) {
-		// include an unmodified $wp_version
-		include( ABSPATH . WPINC . '/version.php' );
+		$url = 'http://api.wordpress.org/themes/info/1.2/';
+		$url = add_query_arg(
+			array(
+				'action'  => $action,
+				'request' => $args,
+			),
+			$url
+		);
 
-		$url = 'https://api.wordpress.org/themes/info/1.0/';
+		$http_url = $url;
+		$ssl      = wp_http_supports( array( 'ssl' ) );
+		if ( $ssl ) {
+			$url = set_url_scheme( $url, 'https' );
+		}
 
 		$http_args = array(
 			'user-agent' => classicpress_user_agent(),
-			'body' => array(
-				'action' => $action,
-				'request' => serialize( $args )
-			)
 		);
-		$request = wp_remote_post( $url, $http_args );
+		$request   = wp_remote_get( $url, $http_args );
 
-		if ( is_wp_error( $request ) ) {
+		if ( $ssl && is_wp_error( $request ) ) {
 			if ( ! wp_doing_ajax() ) {
 				trigger_error(
 					sprintf(
@@ -466,9 +480,7 @@ function themes_api( $action, $args = array() ) {
 					headers_sent() || WP_DEBUG ? E_USER_WARNING : E_USER_NOTICE
 				);
 			}
-
-			// Retry request
-			$request = wp_remote_post( $url, $http_args );
+			$request = wp_remote_get( $http_url, $http_args );
 		}
 
 		if ( is_wp_error( $request ) ) {
@@ -481,9 +493,13 @@ function themes_api( $action, $args = array() ) {
 				$request->get_error_message()
 			);
 		} else {
-			$res = maybe_unserialize( wp_remote_retrieve_body( $request ) );
-			if ( ! is_object( $res ) && ! is_array( $res ) ) {
-				$res = new WP_Error( 'themes_api_failed',
+			$res = json_decode( wp_remote_retrieve_body( $request ), true );
+			if ( is_array( $res ) ) {
+				// Object casting is required in order to match the info/1.0 format.
+				$res = (object) $res;
+			} elseif ( null === $res ) {
+				$res = new WP_Error(
+					'themes_api_failed',
 					sprintf(
 						/* translators: %s: support forums URL */
 						__( 'An unexpected error occurred. Something may be wrong with ClassicPress.net or this server&#8217;s configuration. If you continue to have problems, please try the <a href="%s">support forums</a>.' ),
@@ -492,6 +508,21 @@ function themes_api( $action, $args = array() ) {
 					wp_remote_retrieve_body( $request )
 				);
 			}
+
+			if ( isset( $res->error ) ) {
+				$res = new WP_Error( 'themes_api_failed', $res->error );
+			}
+		}
+
+		// Back-compat for info/1.2 API, upgrade the theme objects in query_themes to objects.
+		if ( 'query_themes' === $action ) {
+			foreach ( $res->themes as $i => $theme ) {
+				$res->themes[ $i ] = (object) $theme;
+			}
+		}
+		// Back-compat for info/1.2 API, downgrade the feature_list result back to an array.
+		if ( 'feature_list' === $action ) {
+			$res = (array) $res;
 		}
 	}
 
@@ -582,21 +613,30 @@ function wp_prepare_themes_for_js( $themes = null ) {
 			) );
 		}
 
+		$update_requires_wp  = isset( $updates[ $slug ]['requires'] ) ? $updates[ $slug ]['requires'] : null;
+		$update_requires_php = isset( $updates[ $slug ]['requires_php'] ) ? $updates[ $slug ]['requires_php'] : null;
+
 		$prepared_themes[ $slug ] = array(
-			'id'           => $slug,
-			'name'         => $theme->display( 'Name' ),
-			'screenshot'   => array( $theme->get_screenshot() ), // @todo multiple
-			'description'  => $theme->display( 'Description' ),
-			'author'       => $theme->display( 'Author', false, true ),
-			'authorAndUri' => $theme->display( 'Author' ),
-			'version'      => $theme->display( 'Version' ),
-			'tags'         => $theme->display( 'Tags' ),
-			'parent'       => $parent,
-			'active'       => $slug === $current_theme,
-			'hasUpdate'    => isset( $updates[ $slug ] ),
-			'hasPackage'   => isset( $updates[ $slug ] ) && ! empty( $updates[ $slug ][ 'package' ] ),
-			'update'       => get_theme_update_available( $theme ),
-			'actions'      => array(
+			'id'             => $slug,
+			'name'           => $theme->display( 'Name' ),
+			'screenshot'     => array( $theme->get_screenshot() ), // @todo multiple
+			'description'    => $theme->display( 'Description' ),
+			'author'         => $theme->display( 'Author', false, true ),
+			'authorAndUri'   => $theme->display( 'Author' ),
+			'tags'           => $theme->display( 'Tags' ),
+			'version'        => $theme->get( 'Version' ),
+			'compatibleWP'   => is_wp_version_compatible( $theme->get( 'RequiresWP' ) ),
+			'compatiblePHP'  => is_php_version_compatible( $theme->get( 'RequiresPHP' ) ),
+			'updateResponse' => array(
+				'compatibleWP'  => is_wp_version_compatible( $update_requires_wp ),
+				'compatiblePHP' => is_php_version_compatible( $update_requires_php ),
+			),
+			'parent'         => $parent,
+			'active'         => $slug === $current_theme,
+			'hasUpdate'      => isset( $updates[ $slug ] ),
+			'hasPackage'     => isset( $updates[ $slug ] ) && ! empty( $updates[ $slug ][ 'package' ] ),
+			'update'         => get_theme_update_available( $theme ),
+			'actions'        => array(
 				'activate' => current_user_can( 'switch_themes' ) ? wp_nonce_url( admin_url( 'themes.php?action=activate&amp;stylesheet=' . $encoded_slug ), 'switch-theme_' . $slug ) : null,
 				'customize' => $customize_action,
 				'delete'   => current_user_can( 'delete_themes' ) ? wp_nonce_url( admin_url( 'themes.php?action=delete&amp;stylesheet=' . $encoded_slug ), 'delete-theme_' . $slug ) : null,
@@ -679,14 +719,147 @@ function customize_themes_print_templates() {
 					<# } #>
 
 					<# if ( data.hasUpdate ) { #>
-						<div class="notice notice-warning notice-alt notice-large" data-slug="{{ data.id }}">
-							<h3 class="notice-title"><?php _e( 'Update Available' ); ?></h3>
-							{{{ data.update }}}
-						</div>
+						<# if ( data.updateResponse.compatibleWP && data.updateResponse.compatiblePHP ) { #>
+							<div class="notice notice-warning notice-alt notice-large" data-slug="{{ data.id }}">
+								<h3 class="notice-title"><?php _e( 'Update Available' ); ?></h3>
+								{{{ data.update }}}
+							</div>
+						<# } else { #>
+							<div class="notice notice-error notice-alt notice-large" data-slug="{{ data.id }}">
+								<h3 class="notice-title"><?php _e( 'Update Incompatible' ); ?></h3>
+								<p>
+									<# if ( ! data.updateResponse.compatibleWP && ! data.updateResponse.compatiblePHP ) { #>
+										<?php
+										printf(
+											/* translators: %s: Theme name. */
+											__( 'There is a new version of %s available, but it doesn&#8217;t work with your versions of ClassicPress and PHP.' ),
+											'{{{ data.name }}}'
+										);
+										if ( current_user_can( 'update_core' ) && current_user_can( 'update_php' ) ) {
+											printf(
+												/* translators: 1: URL to ClassicPress Updates screen, 2: URL to Update PHP page. */
+												' ' . __( '<a href="%1$s">Please update ClassicPress</a>, and then <a href="%2$s">learn more about updating PHP</a>.' ),
+												self_admin_url( 'update-core.php' ),
+												esc_url( wp_get_update_php_url() )
+											);
+											wp_update_php_annotation( '</p><p><em>', '</em>' );
+										} elseif ( current_user_can( 'update_core' ) ) {
+											printf(
+												/* translators: %s: URL to ClassicPress Updates screen. */
+												' ' . __( '<a href="%s">Please update ClassicPress</a>.' ),
+												self_admin_url( 'update-core.php' )
+											);
+										} elseif ( current_user_can( 'update_php' ) ) {
+											printf(
+												/* translators: %s: URL to Update PHP page. */
+												' ' . __( '<a href="%s">Learn more about updating PHP</a>.' ),
+												esc_url( wp_get_update_php_url() )
+											);
+											wp_update_php_annotation( '</p><p><em>', '</em>' );
+										}
+										?>
+									<# } else if ( ! data.updateResponse.compatibleWP ) { #>
+										<?php
+										printf(
+											/* translators: %s: Theme name. */
+											__( 'There is a new version of %s available, but it doesn&#8217;t work with your version of ClassicPress.' ),
+											'{{{ data.name }}}'
+										);
+										if ( current_user_can( 'update_core' ) ) {
+											printf(
+												/* translators: %s: URL to ClassicPress Updates screen. */
+												' ' . __( '<a href="%s">Please update ClassicPress</a>.' ),
+												self_admin_url( 'update-core.php' )
+											);
+										}
+										?>
+									<# } else if ( ! data.updateResponse.compatiblePHP ) { #>
+										<?php
+										printf(
+											/* translators: %s: Theme name. */
+											__( 'There is a new version of %s available, but it doesn&#8217;t work with your version of PHP.' ),
+											'{{{ data.name }}}'
+										);
+										if ( current_user_can( 'update_php' ) ) {
+											printf(
+												/* translators: %s: URL to Update PHP page. */
+												' ' . __( '<a href="%s">Learn more about updating PHP</a>.' ),
+												esc_url( wp_get_update_php_url() )
+											);
+											wp_update_php_annotation( '</p><p><em>', '</em>' );
+										}
+										?>
+									<# } #>
+								</p>
+							</div>
+						<# } #>
 					<# } #>
 
 					<# if ( data.parent ) { #>
-						<p class="parent-theme"><?php printf( __( 'This is a child theme of %s.' ), '<strong>{{{ data.parent }}}</strong>' ); ?></p>
+						<p class="parent-theme">
+							<?php
+							printf(
+								/* translators: %s: Theme name. */
+								__( 'This is a child theme of %s.' ),
+								'<strong>{{{ data.parent }}}</strong>'
+							);
+							?>
+						</p>
+					<# } #>
+
+					<# if ( ! data.compatibleWP || ! data.compatiblePHP ) { #>
+						<div class="notice notice-error notice-alt notice-large"><p>
+							<# if ( ! data.compatibleWP && ! data.compatiblePHP ) { #>
+								<?php
+								_e( 'This theme doesn&#8217;t work with your versions of ClassicPress and PHP.' );
+								if ( current_user_can( 'update_core' ) && current_user_can( 'update_php' ) ) {
+									printf(
+										/* translators: 1: URL to ClassicPress Updates screen, 2: URL to Update PHP page. */
+										' ' . __( '<a href="%1$s">Please update ClassicPress</a>, and then <a href="%2$s">learn more about updating PHP</a>.' ),
+										self_admin_url( 'update-core.php' ),
+										esc_url( wp_get_update_php_url() )
+									);
+									wp_update_php_annotation( '</p><p><em>', '</em>' );
+								} elseif ( current_user_can( 'update_core' ) ) {
+									printf(
+										/* translators: %s: URL to ClassicPress Updates screen. */
+										' ' . __( '<a href="%s">Please update ClassicPress</a>.' ),
+										self_admin_url( 'update-core.php' )
+									);
+								} elseif ( current_user_can( 'update_php' ) ) {
+									printf(
+										/* translators: %s: URL to Update PHP page. */
+										' ' . __( '<a href="%s">Learn more about updating PHP</a>.' ),
+										esc_url( wp_get_update_php_url() )
+									);
+									wp_update_php_annotation( '</p><p><em>', '</em>' );
+								}
+								?>
+							<# } else if ( ! data.compatibleWP ) { #>
+								<?php
+								_e( 'This theme doesn&#8217;t work with your version of ClassicPress.' );
+								if ( current_user_can( 'update_core' ) ) {
+									printf(
+										/* translators: %s: URL to ClassicPress Updates screen. */
+										' ' . __( '<a href="%s">Please update ClassicPress</a>.' ),
+										self_admin_url( 'update-core.php' )
+									);
+								}
+								?>
+							<# } else if ( ! data.compatiblePHP ) { #>
+								<?php
+								_e( 'This theme doesn&#8217;t work with your version of PHP.' );
+								if ( current_user_can( 'update_php' ) ) {
+									printf(
+										/* translators: %s: URL to Update PHP page. */
+										' ' . __( '<a href="%s">Learn more about updating PHP</a>.' ),
+										esc_url( wp_get_update_php_url() )
+									);
+									wp_update_php_annotation( '</p><p><em>', '</em>' );
+								}
+								?>
+							<# } #>
+						</p></div>
 					<# } #>
 
 					<p class="theme-description">{{{ data.description }}}</p>
@@ -706,10 +879,20 @@ function customize_themes_print_templates() {
 							<a href="{{{ data.actions['delete'] }}}" data-slug="{{ data.id }}" class="button button-secondary delete-theme"><?php _e( 'Delete' ); ?></a>
 						<# } #>
 					<?php } ?>
-					<button type="button" class="button button-primary preview-theme" data-slug="{{ data.id }}"><?php _e( 'Live Preview' ); ?></button>
+
+					<# if ( data.compatibleWP && data.compatiblePHP ) { #>
+						<button type="button" class="button button-primary preview-theme" data-slug="{{ data.id }}"><?php _e( 'Live Preview' ); ?></button>
+					<# } else { #>
+						<button class="button button-primary disabled"><?php _e( 'Live Preview' ); ?></button>
+					<# } #>
 				<# } else { #>
-					<button type="button" class="button theme-install" data-slug="{{ data.id }}"><?php _e( 'Install' ); ?></button>
-					<button type="button" class="button button-primary theme-install preview" data-slug="{{ data.id }}"><?php _e( 'Install &amp; Preview' ); ?></button>
+					<# if ( data.compatibleWP && data.compatiblePHP ) { #>
+						<button type="button" class="button theme-install" data-slug="{{ data.id }}"><?php _e( 'Install' ); ?></button>
+						<button type="button" class="button button-primary theme-install preview" data-slug="{{ data.id }}"><?php _e( 'Install &amp; Preview' ); ?></button>
+					<# } else { #>
+						<button type="button" class="button disabled"><?php _ex( 'Cannot Install', 'theme' ); ?></button>
+						<button type="button" class="button button-primary disabled"><?php _e( 'Install &amp; Preview' ); ?></button>
+					<# } #>
 				<# } #>
 			</div>
 		</div>

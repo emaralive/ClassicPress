@@ -5455,18 +5455,8 @@ final class WP_Customize_Manager {
 			// Arguments for all queries.
 			$wporg_args = array(
 				'per_page' => 100,
-				'fields' => array(
-					'screenshot_url' => true,
-					'description' => true,
-					'rating' => true,
-					'downloaded' => true,
-					'downloadlink' => true,
-					'last_updated' => true,
-					'homepage' => true,
-					'num_ratings' => true,
-					'tags' => true,
-					'parent' => true,
-					// 'extended_author' => true, @todo: WordPress.org throws a 500 server error when this is here.
+				'fields'   => array(
+					'reviews_url' => true, // Explicitly request the reviews URL to be linked from the customizer.
 				),
 			);
 
@@ -5508,16 +5498,16 @@ final class WP_Customize_Manager {
 				), $update_php );
 
 				$theme->name        = wp_kses( $theme->name, $themes_allowedtags );
-				$theme->author      = wp_kses( $theme->author, $themes_allowedtags );
 				$theme->version     = wp_kses( $theme->version, $themes_allowedtags );
 				$theme->description = wp_kses( $theme->description, $themes_allowedtags );
-				$theme->tags        = implode( ', ', $theme->tags );
-				$theme->stars       = wp_star_rating( array(
-					'rating' => $theme->rating,
-					'type' => 'percent',
-					'number' => $theme->num_ratings,
-					'echo' => false,
-				) );
+				$theme->stars       = wp_star_rating(
+					array(
+						'rating' => $theme->rating,
+						'type'   => 'percent',
+						'number' => $theme->num_ratings,
+						'echo'   => false,
+					)
+				);
 				$theme->num_ratings = number_format_i18n( $theme->num_ratings );
 				$theme->preview_url = set_url_scheme( $theme->preview_url );
 
@@ -5532,10 +5522,12 @@ final class WP_Customize_Manager {
 				$theme->active = ( isset( $_POST['customized_theme'] ) && $_POST['customized_theme'] === $theme->slug );
 
 				// Map available theme properties to installed theme properties.
-				$theme->id           = $theme->slug;
-				$theme->screenshot   = array( $theme->screenshot_url );
-				$theme->authorAndUri = $theme->author;
-				// The .org API can return the full parent theme details if passed the 'parent' arg, or if passed the 'template' option it'll return that in the event it's a child theme.
+				$theme->id            = $theme->slug;
+				$theme->screenshot    = array( $theme->screenshot_url );
+				$theme->authorAndUri  = wp_kses( $theme->author['display_name'], $themes_allowedtags );
+				$theme->compatibleWP  = is_wp_version_compatible( $theme->requires ); // phpcs:ignore WordPress.NamingConventions.ValidVariableName
+				$theme->compatiblePHP = is_php_version_compatible( $theme->requires_php ); // phpcs:ignore WordPress.NamingConventions.ValidVariableName
+
 				if ( isset( $theme->parent ) ) {
 					$theme->parent = $theme->parent['slug'];
 				} else {
