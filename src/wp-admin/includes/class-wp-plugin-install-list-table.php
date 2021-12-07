@@ -473,15 +473,44 @@ class WP_Plugin_Install_List_Table extends WP_List_Table {
 				switch ( $status['status'] ) {
 					case 'install':
 						if ( $status['url'] ) {
-							/* translators: 1: Plugin name and version. */
-							$action_links[] = '<a class="install-now button" data-slug="' . esc_attr( $plugin['slug'] ) . '" href="' . esc_url( $status['url'] ) . '" aria-label="' . esc_attr( sprintf( __( 'Install %s now' ), $name ) ) . '" data-name="' . esc_attr( $name ) . '">' . __( 'Install Now' ) . '</a>';
+							if ( $compatible_php && $compatible_wp ) {
+								$action_links[] = sprintf(
+									'<a class="install-now button" data-slug="%s" href="%s" aria-label="%s" data-name="%s">%s</a>',
+									esc_attr( $plugin['slug'] ),
+									esc_url( $status['url'] ),
+									/* translators: %s: Plugin name and version. */
+									esc_attr( sprintf( _x( 'Install %s now', 'plugin' ), $name ) ),
+									esc_attr( $name ),
+									__( 'Install Now' )
+								);
+							} else {
+								$action_links[] = sprintf(
+									'<button type="button" class="button button-disabled" disabled="disabled">%s</button>',
+									_x( 'Cannot Install', 'plugin' )
+								);
+							}
 						}
 						break;
 
 					case 'update_available':
 						if ( $status['url'] ) {
-							/* translators: 1: Plugin name and version */
-							$action_links[] = '<a class="update-now button aria-button-if-js" data-plugin="' . esc_attr( $status['file'] ) . '" data-slug="' . esc_attr( $plugin['slug'] ) . '" href="' . esc_url( $status['url'] ) . '" aria-label="' . esc_attr( sprintf( __( 'Update %s now' ), $name ) ) . '" data-name="' . esc_attr( $name ) . '">' . __( 'Update Now' ) . '</a>';
+							if ( $compatible_php && $compatible_wp ) {
+								$action_links[] = sprintf(
+									'<a class="update-now button aria-button-if-js" data-plugin="%s" data-slug="%s" href="%s" aria-label="%s" data-name="%s">%s</a>',
+									esc_attr( $status['file'] ),
+									esc_attr( $plugin['slug'] ),
+									esc_url( $status['url'] ),
+									/* translators: %s: Plugin name and version. */
+									esc_attr( sprintf( _x( 'Update %s now', 'plugin' ), $name ) ),
+									esc_attr( $name ),
+									__( 'Update Now' )
+								);
+							} else {
+								$action_links[] = sprintf(
+									'<button type="button" class="button button-disabled" disabled="disabled">%s</button>',
+									_x( 'Cannot Update', 'plugin' )
+								);
+							}
 						}
 						break;
 
@@ -548,6 +577,56 @@ class WP_Plugin_Install_List_Table extends WP_List_Table {
 			$last_updated_timestamp = strtotime( $plugin['last_updated'] );
 		?>
 		<div class="plugin-card plugin-card-<?php echo sanitize_html_class( $plugin['slug'] ); ?>">
+			<?php
+			if ( ! $compatible_php || ! $compatible_wp ) {
+				echo '<div class="notice inline notice-error notice-alt"><p>';
+				if ( ! $compatible_php && ! $compatible_wp ) {
+					_e( 'This plugin doesn&#8217;t work with your versions of WordPress and PHP.' );
+					if ( current_user_can( 'update_core' ) && current_user_can( 'update_php' ) ) {
+						printf(
+							/* translators: 1: URL to WordPress Updates screen, 2: URL to Update PHP page. */
+							' ' . __( '<a href="%1$s">Please update WordPress</a>, and then <a href="%2$s">learn more about updating PHP</a>.' ),
+							self_admin_url( 'update-core.php' ),
+							esc_url( wp_get_update_php_url() )
+						);
+						wp_update_php_annotation( '</p><p><em>', '</em>' );
+					} elseif ( current_user_can( 'update_core' ) ) {
+						printf(
+							/* translators: %s: URL to WordPress Updates screen. */
+							' ' . __( '<a href="%s">Please update WordPress</a>.' ),
+							self_admin_url( 'update-core.php' )
+						);
+					} elseif ( current_user_can( 'update_php' ) ) {
+						printf(
+							/* translators: %s: URL to Update PHP page. */
+							' ' . __( '<a href="%s">Learn more about updating PHP</a>.' ),
+							esc_url( wp_get_update_php_url() )
+						);
+						wp_update_php_annotation( '</p><p><em>', '</em>' );
+					}
+				} elseif ( ! $compatible_wp ) {
+					_e( 'This plugin doesn&#8217;t work with your version of WordPress.' );
+					if ( current_user_can( 'update_core' ) ) {
+						printf(
+							/* translators: %s: URL to WordPress Updates screen. */
+							' ' . __( '<a href="%s">Please update WordPress</a>.' ),
+							self_admin_url( 'update-core.php' )
+						);
+					}
+				} elseif ( ! $compatible_php ) {
+					_e( 'This plugin doesn&#8217;t work with your version of PHP.' );
+					if ( current_user_can( 'update_php' ) ) {
+						printf(
+							/* translators: %s: URL to Update PHP page. */
+							' ' . __( '<a href="%s">Learn more about updating PHP</a>.' ),
+							esc_url( wp_get_update_php_url() )
+						);
+						wp_update_php_annotation( '</p><p><em>', '</em>' );
+					}
+				}
+				echo '</p></div>';
+			}
+			?>
 			<div class="plugin-card-top">
 				<div class="name column-name">
 					<h3>
@@ -591,14 +670,12 @@ class WP_Plugin_Install_List_Table extends WP_List_Table {
 				</div>
 				<div class="column-compatibility">
 					<?php
-					$wp_version = get_bloginfo( 'version' );
-
-					if ( ! empty( $plugin['tested'] ) && version_compare( substr( $wp_version, 0, strlen( $plugin['tested'] ) ), $plugin['tested'], '>' ) ) {
-						echo '<span class="compatibility-untested">' . __( 'Untested with your version of ClassicPress' ) . '</span>';
-					} elseif ( ! empty( $plugin['requires'] ) && version_compare( substr( $wp_version, 0, strlen( $plugin['requires'] ) ), $plugin['requires'], '<' ) ) {
-						echo '<span class="compatibility-incompatible">' . __( '<strong>Incompatible</strong> with your version of ClassicPress' ) . '</span>';
+					if ( ! $tested_wp ) {
+						echo '<span class="compatibility-untested">' . __( 'Untested with your version of WordPress' ) . '</span>';
+					} elseif ( ! $compatible_wp ) {
+						echo '<span class="compatibility-incompatible">' . __( '<strong>Incompatible</strong> with your version of WordPress' ) . '</span>';
 					} else {
-						echo '<span class="compatibility-compatible">' . __( '<strong>Compatible</strong> with your version of ClassicPress' ) . '</span>';
+						echo '<span class="compatibility-compatible">' . __( '<strong>Compatible</strong> with your version of WordPress' ) . '</span>';
 					}
 					?>
 				</div>

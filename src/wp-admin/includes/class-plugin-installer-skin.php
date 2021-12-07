@@ -24,34 +24,48 @@ class Plugin_Installer_Skin extends WP_Upgrader_Skin {
 	private $is_downgrading = false;
 
 	/**
-	 *
 	 * @param array $args
 	 */
-	public function __construct($args = array()) {
-		$defaults = array( 'type' => 'web', 'url' => '', 'plugin' => '', 'nonce' => '', 'title' => '', 'overwrite' => '' );
-		$args = wp_parse_args($args, $defaults);
+	public function __construct( $args = array() ) {
+		$defaults = array(
+			'type'      => 'web',
+			'url'       => '',
+			'plugin'    => '',
+			'nonce'     => '',
+			'title'     => '',
+			'overwrite' => '',
+		);
+		$args     = wp_parse_args( $args, $defaults );
 
-		$this->type = $args['type'];
-		$this->url = $args['url'];
-		$this->api = isset($args['api']) ? $args['api'] : array();
+		$this->type      = $args['type'];
+		$this->url       = $args['url'];
+		$this->api       = isset( $args['api'] ) ? $args['api'] : array();
 		$this->overwrite = $args['overwrite'];
 
-		parent::__construct($args);
+		parent::__construct( $args );
 	}
 
 	/**
+	 * Action to perform before installing a plugin.
+	 *
+	 * @since 2.8.0
 	 */
 	public function before() {
-		if ( !empty($this->api) )
-			$this->upgrader->strings['process_success'] = sprintf( $this->upgrader->strings['process_success_specific'], $this->api->name, $this->api->version);
+		if ( ! empty( $this->api ) ) {
+			$this->upgrader->strings['process_success'] = sprintf(
+				$this->upgrader->strings['process_success_specific'],
+				$this->api->name,
+				$this->api->version
+			);
+		}
 	}
 
 	/**
 	 * Hides the `process_failed` error when updating a plugin by uploading a zip file.
 	 *
-	 * @since WP-5.5.0
+	 * @since 5.5.0
 	 *
-	 * @param $wp_error WP_Error.
+	 * @param WP_Error $wp_error WP_Error.
 	 * @return bool
 	 */
 	public function hide_process_failed( $wp_error ) {
@@ -67,6 +81,9 @@ class Plugin_Installer_Skin extends WP_Upgrader_Skin {
 	}
 
 	/**
+	 * Action to perform following a plugin install.
+	 *
+	 * @since 2.8.0
 	 */
 	public function after() {
 		// Check if the plugin can be overwritten and output the HTML.
@@ -78,7 +95,7 @@ class Plugin_Installer_Skin extends WP_Upgrader_Skin {
 
 		$install_actions = array();
 
-		$from = isset($_GET['from']) ? wp_unslash( $_GET['from'] ) : 'plugins';
+		$from = isset( $_GET['from'] ) ? wp_unslash( $_GET['from'] ) : 'plugins';
 
 		if ( 'import' === $from ) {
 			$install_actions['activate_plugin'] = sprintf(
@@ -93,11 +110,19 @@ class Plugin_Installer_Skin extends WP_Upgrader_Skin {
 				__( 'Activate Plugin &amp; Go to Press This' )
 			);
 		} else {
-			$install_actions['activate_plugin'] = '<a class="button button-primary" href="' . wp_nonce_url( 'plugins.php?action=activate&amp;plugin=' . urlencode( $plugin_file ), 'activate-plugin_' . $plugin_file ) . '" target="_parent">' . __( 'Activate Plugin' ) . '</a>';
+			$install_actions['activate_plugin'] = sprintf(
+				'<a class="button button-primary" href="%s" target="_parent">%s</a>',
+				wp_nonce_url( 'plugins.php?action=activate&amp;plugin=' . urlencode( $plugin_file ), 'activate-plugin_' . $plugin_file ),
+				__( 'Activate Plugin' )
+			);
 		}
 
 		if ( is_multisite() && current_user_can( 'manage_network_plugins' ) ) {
-			$install_actions['network_activate'] = '<a class="button button-primary" href="' . wp_nonce_url( 'plugins.php?action=activate&amp;networkwide=1&amp;plugin=' . urlencode( $plugin_file ), 'activate-plugin_' . $plugin_file ) . '" target="_parent">' . __( 'Network Activate' ) . '</a>';
+			$install_actions['network_activate'] = sprintf(
+				'<a class="button button-primary" href="%s" target="_parent">%s</a>',
+				wp_nonce_url( 'plugins.php?action=activate&amp;networkwide=1&amp;plugin=' . urlencode( $plugin_file ), 'activate-plugin_' . $plugin_file ),
+				__( 'Network Activate' )
+			);
 			unset( $install_actions['activate_plugin'] );
 		}
 
@@ -127,7 +152,7 @@ class Plugin_Installer_Skin extends WP_Upgrader_Skin {
 			);
 		}
 
-		if ( ! $this->result || is_wp_error($this->result) ) {
+		if ( ! $this->result || is_wp_error( $this->result ) ) {
 			unset( $install_actions['activate_plugin'], $install_actions['network_activate'] );
 		} elseif ( ! current_user_can( 'activate_plugin', $plugin_file ) || is_plugin_active( $plugin_file ) ) {
 			unset( $install_actions['activate_plugin'] );
@@ -154,7 +179,7 @@ class Plugin_Installer_Skin extends WP_Upgrader_Skin {
 	/**
 	 * Check if the plugin can be overwritten and output the HTML for overwriting a plugin on upload.
 	 *
-	 * @since WP-5.5.0
+	 * @since 5.5.0
 	 *
 	 * @return bool Whether the plugin can be overwritten and HTML was outputted.
 	 */
@@ -218,13 +243,13 @@ class Plugin_Installer_Skin extends WP_Upgrader_Skin {
 		$table .= '</tbody></table>';
 
 		/**
-		 * Filters the compare table output for overwrite a plugin package on upload.
+		 * Filters the compare table output for overwriting a plugin package on upload.
 		 *
-		 * @since WP-5.5.0
+		 * @since 5.5.0
 		 *
-		 * @param string   $table                The output table with Name, Version, Author, RequiresWP and RequiresPHP info.
-		 * @param array    $current_plugin_data  Array with current plugin data.
-		 * @param array    $new_plugin_data      Array with uploaded plugin data.
+		 * @param string $table               The output table with Name, Version, Author, RequiresWP, and RequiresPHP info.
+		 * @param array  $current_plugin_data Array with current plugin data.
+		 * @param array  $new_plugin_data     Array with uploaded plugin data.
 		 */
 		echo apply_filters( 'install_plugin_overwrite_comparison', $table, $current_plugin_data, $new_plugin_data );
 
@@ -285,15 +310,17 @@ class Plugin_Installer_Skin extends WP_Upgrader_Skin {
 			$install_actions['overwrite_plugin'] = sprintf(
 				'<a class="button button-primary update-from-upload-overwrite" href="%s" target="_parent">%s</a>',
 				wp_nonce_url( add_query_arg( 'overwrite', $overwrite, $this->url ), 'plugin-upload' ),
-				esc_html( __( 'Replace current with uploaded' ) )
+				__( 'Replace current with uploaded' )
 			);
 		} else {
 			echo $blocked_message;
 		}
 
+		$cancel_url = add_query_arg( 'action', 'upload-plugin-cancel-overwrite', $this->url );
+
 		$install_actions['plugins_page'] = sprintf(
 			'<a class="button" href="%s">%s</a>',
-			self_admin_url( 'plugin-install.php' ),
+			wp_nonce_url( $cancel_url, 'plugin-upload-cancel-overwrite' ),
 			__( 'Cancel and go back' )
 		);
 
@@ -301,7 +328,7 @@ class Plugin_Installer_Skin extends WP_Upgrader_Skin {
 		 * Filters the list of action links available following a single plugin installation
 		 * failure when overwriting is allowed.
 		 *
-		 * @since WP-5.5.0
+		 * @since 5.5.0
 		 *
 		 * @param string[] $install_actions Array of plugin action links.
 		 * @param object   $api             Object containing WordPress.org API plugin data.
@@ -310,6 +337,10 @@ class Plugin_Installer_Skin extends WP_Upgrader_Skin {
 		$install_actions = apply_filters( 'install_plugin_overwrite_actions', $install_actions, $this->api, $new_plugin_data );
 
 		if ( ! empty( $install_actions ) ) {
+			printf(
+				'<p class="update-from-upload-expired hidden">%s</p>',
+				__( 'The uploaded file has expired. Please go back and upload it again.' )
+			);
 			echo '<p class="update-from-upload-actions">' . implode( ' ', (array) $install_actions ) . '</p>';
 		}
 
