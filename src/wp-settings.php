@@ -17,6 +17,14 @@ define( 'WPINC', 'wp-includes' );
 
 // Include files required for initialization.
 require( ABSPATH . WPINC . '/load.php' );
+require( ABSPATH . WPINC . '/class-wp-paused-extensions-storage.php' );
+require( ABSPATH . WPINC . '/class-wp-fatal-error-handler.php' );
+require( ABSPATH . WPINC . '/class-wp-recovery-mode-cookie-service.php' );
+require( ABSPATH . WPINC . '/class-wp-recovery-mode-key-service.php' );
+require( ABSPATH . WPINC . '/class-wp-recovery-mode-link-service.php' );
+require( ABSPATH . WPINC . '/class-wp-recovery-mode-email-service.php' );
+require( ABSPATH . WPINC . '/class-wp-recovery-mode.php' );
+require( ABSPATH . WPINC . '/error-protection.php' );
 require( ABSPATH . WPINC . '/default-constants.php' );
 require_once( ABSPATH . WPINC . '/plugin.php' );
 
@@ -25,7 +33,7 @@ require_once( ABSPATH . WPINC . '/plugin.php' );
  * we're including version.php from another installation and don't want
  * these values to be overridden if already set.
  */
-global $wp_version, $wp_db_version, $tinymce_version, $required_php_version, $required_mysql_version, $wp_local_package;
+global $wp_version, $wp_db_version, $tinymce_version, $required_php_version, $required_mysql_version, $wp_local_package, $cp_version;
 require( ABSPATH . WPINC . '/version.php' );
 
 /**
@@ -39,6 +47,9 @@ global $blog_id;
 
 // Set initial default constants including WP_MEMORY_LIMIT, WP_MAX_MEMORY_LIMIT, WP_DEBUG, SCRIPT_DEBUG, WP_CONTENT_DIR and WP_CACHE.
 wp_initial_constants();
+
+// Make sure we register the shutdown handler for fatal errors as soon as possible.
+wp_register_fatal_error_handler();
 
 // Check for the required PHP version and for the MySQL extension or a database drop-in.
 wp_check_php_mysql_versions();
@@ -95,7 +106,10 @@ wp_set_lang_dir();
 // Load early ClassicPress files.
 require( ABSPATH . WPINC . '/compat.php' );
 require( ABSPATH . WPINC . '/class-wp-list-util.php' );
+require( ABSPATH . WPINC . '/formatting.php' );
+require( ABSPATH . WPINC . '/meta.php' );
 require( ABSPATH . WPINC . '/functions.php' );
+require( ABSPATH . WPINC . '/class-wp-meta-query.php' );
 require( ABSPATH . WPINC . '/class-wp-matchesmapregex.php' );
 require( ABSPATH . WPINC . '/class-wp.php' );
 require( ABSPATH . WPINC . '/class-wp-error.php' );
@@ -143,7 +157,6 @@ wp_not_installed();
 // Load most of ClassicPress.
 require( ABSPATH . WPINC . '/class-wp-walker.php' );
 require( ABSPATH . WPINC . '/class-wp-ajax-response.php' );
-require( ABSPATH . WPINC . '/formatting.php' );
 require( ABSPATH . WPINC . '/capabilities.php' );
 require( ABSPATH . WPINC . '/class-wp-roles.php' );
 require( ABSPATH . WPINC . '/class-wp-role.php' );
@@ -158,8 +171,6 @@ require( ABSPATH . WPINC . '/user.php' );
 require( ABSPATH . WPINC . '/class-wp-user-query.php' );
 require( ABSPATH . WPINC . '/class-wp-session-tokens.php' );
 require( ABSPATH . WPINC . '/class-wp-user-meta-session-tokens.php' );
-require( ABSPATH . WPINC . '/meta.php' );
-require( ABSPATH . WPINC . '/class-wp-meta-query.php' );
 require( ABSPATH . WPINC . '/class-wp-metadata-lazyloader.php' );
 require( ABSPATH . WPINC . '/general-template.php' );
 require( ABSPATH . WPINC . '/link-template.php' );
@@ -301,6 +312,11 @@ wp_start_scraping_edited_file_errors();
 // Register the default theme directory root
 register_theme_directory( get_theme_root() );
 
+if ( ! is_multisite() ) {
+	// Handle users requesting a recovery mode link and initiating recovery mode.
+	wp_recovery_mode()->initialize();
+}
+
 // Load active plugins.
 foreach ( wp_get_active_and_valid_plugins() as $plugin ) {
 	wp_register_plugin_realpath( $plugin );
@@ -423,14 +439,12 @@ $GLOBALS['wp_locale_switcher'] = new WP_Locale_Switcher();
 $GLOBALS['wp_locale_switcher']->init();
 
 // Load the functions for the active theme, for both parent and child theme if applicable.
-if ( ! wp_installing() || 'wp-activate.php' === $pagenow ) {
-	if ( TEMPLATEPATH !== STYLESHEETPATH && file_exists( STYLESHEETPATH . '/functions.php' ) ) {
-		include( STYLESHEETPATH . '/functions.php' );
-	}
-	if ( file_exists( TEMPLATEPATH . '/functions.php' ) ) {
-		include( TEMPLATEPATH . '/functions.php' );
+foreach ( wp_get_active_and_valid_themes() as $theme ) {
+	if ( file_exists( $theme . '/functions.php' ) ) {
+		include $theme . '/functions.php';
 	}
 }
+unset( $theme );
 
 /**
  * Fires after the theme is loaded.

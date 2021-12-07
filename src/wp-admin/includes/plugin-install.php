@@ -306,7 +306,7 @@ function install_plugins_upload() {
 	<form method="post" enctype="multipart/form-data" class="wp-upload-form" action="<?php echo self_admin_url('update.php?action=upload-plugin'); ?>">
 		<?php wp_nonce_field( 'plugin-upload' ); ?>
 		<label class="screen-reader-text" for="pluginzip"><?php _e( 'Plugin zip file' ); ?></label>
-		<input type="file" id="pluginzip" name="pluginzip" accept=".zip" />
+		<input type="file" id="pluginzip" name="pluginzip" />
 		<?php submit_button( __( 'Install Now' ), '', 'install-plugin-submit', false ); ?>
 	</form>
 </div>
@@ -719,15 +719,15 @@ function install_plugin_information() {
 	$requires_wp  = isset( $api->requires ) ? $api->requires : null;
 
 	$compatible_php = is_php_version_compatible( $requires_php );
-	$compatible_wp = is_wp_version_compatible( $requires_wp );
-	$tested_wp = ( empty( $api->tested ) || version_compare( get_bloginfo( 'version' ), $api->tested, '<=' ) );
+	$compatible_wp  = is_wp_version_compatible( $requires_wp );
+	$tested_wp      = ( empty( $api->tested ) || version_compare( get_bloginfo( 'version' ), $api->tested, '<=' ) );
 
 	if ( ! $compatible_php ) {
 		echo '<div class="notice notice-error notice-alt"><p>';
 		_e( '<strong>Error:</strong> This plugin <strong>requires a newer version of PHP</strong>.' );
 		if ( current_user_can( 'update_php' ) ) {
 			printf(
-				/* translators: %s: "Update PHP" page URL */
+				/* translators: %s: URL to Update PHP page. */
 				' ' . __( '<a href="%s" target="_blank">Click here to learn more about updating PHP</a>.' ),
 				esc_url( wp_get_update_php_url() )
 			);
@@ -748,7 +748,7 @@ function install_plugin_information() {
 		_e( '<strong>Error:</strong> This plugin <strong>requires a newer version of WordPress</strong>.' );
 		if ( current_user_can( 'update_core' ) ) {
 			printf(
-				/* translators: %s: "Update WordPress" screen URL */
+				/* translators: %s: URL to WordPress Updates screen. */
 				' ' . __( '<a href="%s" target="_parent">Click here to update WordPress</a>.' ),
 				self_admin_url( 'update-core.php' )
 			);
@@ -777,12 +777,26 @@ function install_plugin_information() {
 		switch ( $status['status'] ) {
 			case 'install':
 				if ( $status['url'] ) {
-					echo '<a data-slug="' . esc_attr( $api->slug ) . '" id="plugin_install_from_iframe" class="button button-primary right" href="' . $status['url'] . '" target="_parent">' . __( 'Install Now' ) . '</a>';
+					if ( $compatible_php && $compatible_wp ) {
+						echo '<a data-slug="' . esc_attr( $api->slug ) . '" id="plugin_install_from_iframe" class="button button-primary right" href="' . $status['url'] . '" target="_parent">' . __( 'Install Now' ) . '</a>';
+					} else {
+						printf(
+							'<button type="button" class="button button-primary button-disabled right" disabled="disabled">%s</button>',
+							_x( 'Cannot Install', 'plugin' )
+						);
+					}
 				}
 				break;
 			case 'update_available':
 				if ( $status['url'] ) {
-					echo '<a data-slug="' . esc_attr( $api->slug ) . '" data-plugin="' . esc_attr( $status['file'] ) . '" id="plugin_update_from_iframe" class="button button-primary right" href="' . $status['url'] . '" target="_parent">' . __( 'Install Update Now' ) .'</a>';
+					if ( $compatible_php ) {
+						echo '<a data-slug="' . esc_attr( $api->slug ) . '" data-plugin="' . esc_attr( $status['file'] ) . '" id="plugin_update_from_iframe" class="button button-primary right" href="' . $status['url'] . '" target="_parent">' . __( 'Install Update Now' ) . '</a>';
+					} else {
+						printf(
+							'<button type="button" class="button button-primary button-disabled right" disabled="disabled">%s</button>',
+							_x( 'Cannot Update', 'plugin' )
+						);
+					}
 				}
 				break;
 			case 'newer_installed':

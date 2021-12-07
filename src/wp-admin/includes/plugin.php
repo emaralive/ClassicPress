@@ -45,7 +45,8 @@
  * the file. This is not checked however and the file is only opened for
  * reading.
  *
- * @since WP-1.5.0
+ * @since 1.5.0
+ * @since 5.3.0 Added support for `Requires at least` and `Requires PHP` headers.
  *
  * @param string $plugin_file Path to the main plugin file.
  * @param bool   $markup      Optional. If the returned data should have HTML markup applied.
@@ -63,22 +64,26 @@
  *     @type string $TextDomain  Plugin textdomain.
  *     @type string $DomainPath  Plugins relative directory path to .mo files.
  *     @type bool   $Network     Whether the plugin can only be activated network-wide.
+ *     @type string $RequiresWP  Minimum required version of WordPress.
+ *     @type string $RequiresPHP Minimum required version of PHP.
  * }
  */
 function get_plugin_data( $plugin_file, $markup = true, $translate = true ) {
 
 	$default_headers = array(
-		'Name' => 'Plugin Name',
-		'PluginURI' => 'Plugin URI',
-		'Version' => 'Version',
+		'Name'        => 'Plugin Name',
+		'PluginURI'   => 'Plugin URI',
+		'Version'     => 'Version',
 		'Description' => 'Description',
-		'Author' => 'Author',
-		'AuthorURI' => 'Author URI',
-		'TextDomain' => 'Text Domain',
-		'DomainPath' => 'Domain Path',
-		'Network' => 'Network',
+		'Author'      => 'Author',
+		'AuthorURI'   => 'Author URI',
+		'TextDomain'  => 'Text Domain',
+		'DomainPath'  => 'Domain Path',
+		'Network'     => 'Network',
+		'RequiresWP'  => 'Requires at least',
+		'RequiresPHP' => 'Requires PHP',
 		// Site Wide Only is deprecated in favor of Network.
-		'_sitewide' => 'Site Wide Only',
+		'_sitewide'   => 'Site Wide Only',
 	);
 
 	$plugin_data = get_file_data( $plugin_file, $default_headers, 'plugin' );
@@ -116,6 +121,27 @@ function get_plugin_data( $plugin_file, $markup = true, $translate = true ) {
  * @since WP-2.7.0
  * @access private
  * @see get_plugin_data()
+ *
+ * @access private
+ *
+ * @param string $plugin_file Path to the main plugin file.
+ * @param array  $plugin_data An array of plugin data. See `get_plugin_data()`.
+ * @param bool   $markup      Optional. If the returned data should have HTML markup applied.
+ *                            Default true.
+ * @param bool   $translate   Optional. If the returned data should be translated. Default true.
+ * @return array {
+ *     Plugin data. Values will be empty if not supplied by the plugin.
+ *
+ *     @type string $Name        Name of the plugin. Should be unique.
+ *     @type string $Title       Title of the plugin and link to the plugin's site (if set).
+ *     @type string $Description Plugin description.
+ *     @type string $Author      Author's name.
+ *     @type string $AuthorURI   Author's website address (if set).
+ *     @type string $Version     Plugin version.
+ *     @type string $TextDomain  Plugin textdomain.
+ *     @type string $DomainPath  Plugins relative directory path to .mo files.
+ *     @type bool   $Network     Whether the plugin can only be activated network-wide.
+ * }
  */
 function _get_plugin_data_markup_translate( $plugin_file, $plugin_data, $markup = true, $translate = true ) {
 
@@ -409,12 +435,14 @@ function get_dropins() {
  */
 function _get_dropins() {
 	$dropins = array(
-		'advanced-cache.php' => array( __( 'Advanced caching plugin.'       ), 'WP_CACHE' ), // WP_CACHE
-		'db.php'             => array( __( 'Custom database class.'         ), true ), // auto on load
-		'db-error.php'       => array( __( 'Custom database error message.' ), true ), // auto on error
-		'install.php'        => array( __( 'Custom installation script.'    ), true ), // auto on installation
-		'maintenance.php'    => array( __( 'Custom maintenance message.'    ), true ), // auto on maintenance
-		'object-cache.php'   => array( __( 'External object cache.'         ), true ), // auto on load
+		'advanced-cache.php'      => array( __( 'Advanced caching plugin.'       ), 'WP_CACHE' ), // WP_CACHE
+		'db.php'                  => array( __( 'Custom database class.'         ), true ), // auto on load
+		'db-error.php'            => array( __( 'Custom database error message.' ), true ), // auto on error
+		'install.php'             => array( __( 'Custom installation script.'    ), true ), // auto on installation
+		'maintenance.php'         => array( __( 'Custom maintenance message.'    ), true ), // auto on maintenance
+		'object-cache.php'        => array( __( 'External object cache.'         ), true ), // auto on load
+		'php-error.php'           => array( __( 'Custom PHP error message.' ), true ),       // Auto on error.
+                'fatal-error-handler.php' => array( __( 'Custom PHP fatal error handler.' ), true ), // Auto on error.
 	);
 
 	if ( is_multisite() ) {
@@ -544,9 +572,19 @@ function activate_plugin( $plugin, $redirect = '', $network_wide = false, $silen
 	if ( is_wp_error($valid) )
 		return $valid;
 
-	if ( ( $network_wide && ! isset( $current[ $plugin ] ) ) || ( ! $network_wide && ! in_array( $plugin, $current ) ) ) {
-		if ( !empty($redirect) )
-			wp_redirect(add_query_arg('_error_nonce', wp_create_nonce('plugin-activation-error_' . $plugin), $redirect)); // we'll override this later if the plugin can be included without fatal error
+	$requirements = validate_plugin_requirements( $plugin );
+	if ( is_wp_error( $requirements ) ) {
+		return $requirements;
+	}
+
+	if ( $network_wide && ! isset( $current[ $plugin ] )
+		|| ! $network_wide && ! in_array( $plugin, $current, true )
+	) {
+		if ( ! empty( $redirect ) ) {
+			// We'll override this later if the plugin can be included without fatal error.
+			wp_redirect( add_query_arg( '_error_nonce', wp_create_nonce( 'plugin-activation-error_' . $plugin ), $redirect ) );
+		}
+
 		ob_start();
 		wp_register_plugin_realpath( WP_PLUGIN_DIR . '/' . $plugin );
 		$_wp_plugin_file = $plugin;
@@ -962,18 +1000,33 @@ function validate_plugin($plugin) {
 }
 
 /**
- * Validate the plugin requirements for WP version and PHP version.
+ * Validates the plugin requirements for WordPress version and PHP version.
  *
- * @since WP-5.2.0
+ * Uses the information from `Requires at least` and `Requires PHP` headers
+ * defined in the plugin's main PHP file.
+ *
+ * If the headers are not present in the plugin's main PHP file,
+ * `readme.txt` is also checked as a fallback.
+ *
+ * @since 5.2.0
+ * @since 5.3.0 Added support for reading the headers from the plugin's
+ *              main PHP file, with `readme.txt` as a fallback.
  *
  * @param string $plugin Path to the plugin file relative to the plugins directory.
  * @return true|WP_Error True if requirements are met, WP_Error on failure.
  */
 function validate_plugin_requirements( $plugin ) {
+	$plugin_headers = get_plugin_data( WP_PLUGIN_DIR . '/' . $plugin );
+
+	$requirements = array(
+		'requires'     => ! empty( $plugin_headers['RequiresWP'] ) ? $plugin_headers['RequiresWP'] : '',
+		'requires_php' => ! empty( $plugin_headers['RequiresPHP'] ) ? $plugin_headers['RequiresPHP'] : '',
+	);
+
 	$readme_file = WP_PLUGIN_DIR . '/' . dirname( $plugin ) . '/readme.txt';
 
 	if ( file_exists( $readme_file ) ) {
-		$plugin_data = get_file_data(
+		$readme_headers = get_file_data(
 			$readme_file,
 			array(
 				'requires'     => 'Requires at least',
@@ -981,41 +1034,59 @@ function validate_plugin_requirements( $plugin ) {
 			),
 			'plugin'
 		);
-	} else {
-		return true;
+
+		$requirements = array_merge( $readme_headers, $requirements );
 	}
 
-	$plugin_data['wp_compatible'] = is_wp_version_compatible( $plugin_data['requires'] );
-	$plugin_data['php_compatible'] = is_php_version_compatible( $plugin_data['requires_php'] );
+	$compatible_wp  = is_wp_version_compatible( $requirements['requires'] );
+	$compatible_php = is_php_version_compatible( $requirements['requires_php'] );
 
-	$plugin_data = array_merge( $plugin_data, get_plugin_data( WP_PLUGIN_DIR . '/' . $plugin ) );
+	$php_update_message = '</p><p>' . sprintf(
+		/* translators: %s: URL to Update PHP page. */
+		__( '<a href="%s">Learn more about updating PHP</a>.' ),
+		esc_url( wp_get_update_php_url() )
+	);
 
-	if ( ! $plugin_data['wp_compatible'] && ! $plugin_data['php_compatible'] ) {
+	$annotation = wp_get_update_php_annotation();
+
+	if ( $annotation ) {
+		$php_update_message .= '</p><p><em>' . $annotation . '</em>';
+	}
+
+	if ( ! $compatible_wp && ! $compatible_php ) {
 		return new WP_Error(
 			'plugin_wp_php_incompatible',
-			sprintf(
-				/* translators: %s: plugin name */
-				__( '<strong>Error:</strong> Current WordPress and PHP versions do not meet minimum requirements for %s.' ),
-				$plugin_data['Name']
-			)
+			'<p>' . sprintf(
+				/* translators: 1: Current WordPress version, 2: Current PHP version, 3: Plugin name, 4: Required WordPress version, 5: Required PHP version. */
+				_x( '<strong>Error:</strong> Current versions of WordPress (%1$s) and PHP (%2$s) do not meet minimum requirements for %3$s. The plugin requires WordPress %4$s and PHP %5$s.', 'plugin' ),
+				get_bloginfo( 'version' ),
+				phpversion(),
+				$plugin_headers['Name'],
+				$requirements['requires'],
+				$requirements['requires_php']
+			) . $php_update_message . '</p>'
 		);
-	} elseif ( ! $plugin_data['php_compatible'] ) {
+	} elseif ( ! $compatible_php ) {
 		return new WP_Error(
 			'plugin_php_incompatible',
-			sprintf(
-				/* translators: %s: plugin name */
-				__( '<strong>Error:</strong> Current PHP version does not meet minimum requirements for %s.' ),
-				$plugin_data['Name']
-			)
+			'<p>' . sprintf(
+				/* translators: 1: Current PHP version, 2: Plugin name, 3: Required PHP version. */
+				_x( '<strong>Error:</strong> Current PHP version (%1$s) does not meet minimum requirements for %2$s. The plugin requires PHP %3$s.', 'plugin' ),
+				phpversion(),
+				$plugin_headers['Name'],
+				$requirements['requires_php']
+			) . $php_update_message . '</p>'
 		);
-	} elseif ( ! $plugin_data['wp_compatible'] ) {
+	} elseif ( ! $compatible_wp ) {
 		return new WP_Error(
 			'plugin_wp_incompatible',
-			sprintf(
-				/* translators: %s: plugin name */
-				__( '<strong>Error:</strong> Current WordPress version does not meet minimum requirements for %s.' ),
-				$plugin_data['Name']
-			)
+			'<p>' . sprintf(
+				/* translators: 1: Current WordPress version, 2: Plugin name, 3: Required WordPress version. */
+				_x( '<strong>Error:</strong> Current WordPress version (%1$s) does not meet minimum requirements for %2$s. The plugin requires WordPress %3$s.', 'plugin' ),
+				get_bloginfo( 'version' ),
+				$plugin_headers['Name'],
+				$requirements['requires']
+			) . '</p>'
 		);
 	}
 
@@ -2074,4 +2145,133 @@ function wp_add_privacy_policy_content( $plugin_name, $policy_text ) {
 	}
 
 	WP_Privacy_Policy_Content::add( $plugin_name, $policy_text );
+}
+
+/**
+ * Determines whether a plugin is technically active but was paused while
+ * loading.
+ *
+ * For more information on this and similar theme functions, check out
+ * the {@link https://developer.wordpress.org/themes/basics/conditional-tags/
+ * Conditional Tags} article in the Theme Developer Handbook.
+ *
+ * @since 5.2.0
+ *
+ * @param string $plugin Path to the plugin file relative to the plugins directory.
+ * @return bool True, if in the list of paused plugins. False, not in the list.
+ */
+function is_plugin_paused( $plugin ) {
+	if ( ! isset( $GLOBALS['_paused_plugins'] ) ) {
+		return false;
+	}
+
+	if ( ! is_plugin_active( $plugin ) ) {
+		return false;
+	}
+
+	list( $plugin ) = explode( '/', $plugin );
+
+	return array_key_exists( $plugin, $GLOBALS['_paused_plugins'] );
+}
+
+/**
+ * Gets the error that was recorded for a paused plugin.
+ *
+ * @since 5.2.0
+ *
+ * @param string $plugin Path to the plugin file relative to the plugins
+ *                       directory.
+ * @return array|false Array of error information as it was returned by
+ *                     `error_get_last()`, or false if none was recorded.
+ */
+function wp_get_plugin_error( $plugin ) {
+	if ( ! isset( $GLOBALS['_paused_plugins'] ) ) {
+		return false;
+	}
+
+	list( $plugin ) = explode( '/', $plugin );
+
+	if ( ! array_key_exists( $plugin, $GLOBALS['_paused_plugins'] ) ) {
+		return false;
+	}
+
+	return $GLOBALS['_paused_plugins'][ $plugin ];
+}
+
+/**
+ * Tries to resume a single plugin.
+ *
+ * If a redirect was provided, we first ensure the plugin does not throw fatal
+ * errors anymore.
+ *
+ * The way it works is by setting the redirection to the error before trying to
+ * include the plugin file. If the plugin fails, then the redirection will not
+ * be overwritten with the success message and the plugin will not be resumed.
+ *
+ * @since 5.2.0
+ *
+ * @param string $plugin       Single plugin to resume.
+ * @param string $redirect     Optional. URL to redirect to. Default empty string.
+ * @return bool|WP_Error True on success, false if `$plugin` was not paused,
+ *                       `WP_Error` on failure.
+ */
+function resume_plugin( $plugin, $redirect = '' ) {
+	/*
+	 * We'll override this later if the plugin could be resumed without
+	 * creating a fatal error.
+	 */
+	if ( ! empty( $redirect ) ) {
+		wp_redirect(
+			add_query_arg(
+				'_error_nonce',
+				wp_create_nonce( 'plugin-resume-error_' . $plugin ),
+				$redirect
+			)
+		);
+
+		// Load the plugin to test whether it throws a fatal error.
+		ob_start();
+		plugin_sandbox_scrape( $plugin );
+		ob_clean();
+	}
+
+	list( $extension ) = explode( '/', $plugin );
+
+	$result = wp_paused_plugins()->delete( $extension );
+
+	if ( ! $result ) {
+		return new WP_Error(
+			'could_not_resume_plugin',
+			__( 'Could not resume the plugin.' )
+		);
+	}
+
+	return true;
+}
+
+/**
+ * Renders an admin notice in case some plugins have been paused due to errors.
+ *
+ * @since 5.2.0
+ */
+function paused_plugins_notice() {
+	if ( 'plugins.php' === $GLOBALS['pagenow'] ) {
+		return;
+	}
+
+	if ( ! current_user_can( 'resume_plugins' ) ) {
+		return;
+	}
+
+	if ( ! isset( $GLOBALS['_paused_plugins'] ) || empty( $GLOBALS['_paused_plugins'] ) ) {
+		return;
+	}
+
+	printf(
+		'<div class="notice notice-error"><p><strong>%s</strong><br>%s</p><p><a href="%s">%s</a></p></div>',
+		__( 'One or more plugins failed to load properly.' ),
+		__( 'You can find more details and make changes on the Plugins screen.' ),
+		esc_url( admin_url( 'plugins.php?plugin_status=paused' ) ),
+		__( 'Go to the Plugins screen' )
+	);
 }

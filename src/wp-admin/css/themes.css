@@ -51,6 +51,15 @@ body.js .theme-browser.search-loading {
 	margin: 0;
 }
 
+.theme .notice,
+.theme .notice.is-dismissible {
+	left: 0;
+	margin: 0;
+	position: absolute;
+	right: 0;
+	top: 0;
+}
+
 /**
  * Main theme element
  * (has flexible margins)
@@ -905,6 +914,15 @@ body.folded .theme-browser ~ .theme-overlay .theme-wrap {
 	.theme-browser .theme:nth-child(3n) {
 		margin-right: 0;
 	}
+
+	.theme-overlay .theme-about {
+		bottom: 105px;
+	}
+
+	.theme-overlay .theme-actions {
+		padding-left: 4%;
+		padding-right: 4%;
+	}
 }
 
 @media only screen and (max-width: 650px) {
@@ -1046,6 +1064,10 @@ body.folded .theme-browser ~ .theme-overlay .theme-wrap {
 	text-align: center;
 }
 
+.upload-plugin-wrap {
+	display: none;
+}
+
 .show-upload-view .upload-theme,
 .show-upload-view .upload-plugin,
 .show-upload-view .upload-plugin-wrap,
@@ -1059,9 +1081,7 @@ body.folded .theme-browser ~ .theme-overlay .theme-wrap {
 	border: 1px solid #e5e5e5;
 	padding: 30px;
 	margin: 30px auto;
-	display: inline-flex;
-	justify-content: space-between;
-	align-items: center;
+	max-width: 380px;
 }
 
 .upload-theme .wp-upload-form input[type="file"],
@@ -1107,6 +1127,7 @@ p.no-themes-local {
 	.upload-theme .install-help {
 		font-size: 15px;
 		padding: 20px 0 0;
+		text-align: left;
 	}
 }
 
@@ -1126,7 +1147,7 @@ p.no-themes-local {
 
 .theme-details .no-rating {
 	display: block;
-	line-height: 20px;
+	line-height: 1.9;
 }
 
 .update-from-upload-comparison {
@@ -1952,14 +1973,25 @@ body.full-overlay-active {
 		line-height: normal;
 	}
 
+	.theme-install-overlay .wp-full-overlay-header .button {
+		font-size: 13px;
+		line-height: 2.15384615;
+		min-height: 30px;
+	}
+
 	.theme-browser .theme .theme-actions .button {
 		margin-bottom: 0;
 	}
 
 	.theme-browser .theme.active .theme-actions,
 	.theme-browser .theme .theme-actions {
-		padding-top: 8px;
-		padding-bottom: 8px;
+		padding-top: 4px;
+		padding-bottom: 4px;
+	}
+
+	.upload-theme .wp-upload-form,
+	.upload-plugin .wp-upload-form {
+		display: block;
 	}
 }
 
