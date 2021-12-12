@@ -316,6 +316,25 @@ function list_plugin_updates() {
 				$compat .= ' <a href="https://link.classicpress.net/plugin-compatibility">' . __( 'More info.' ) . '</a>';
 			}
 		}
+
+		$requires_php   = isset( $plugin_data->update->requires_php ) ? $plugin_data->update->requires_php : null;
+		$compatible_php = is_php_version_compatible( $requires_php );
+
+		if ( ! $compatible_php && current_user_can( 'update_php' ) ) {
+			$compat .= '<br>' . __( 'This update doesn&#8217;t work with your version of PHP.' ) . '&nbsp;';
+			$compat .= sprintf(
+				/* translators: %s: URL to Update PHP page. */
+				__( '<a href="%s">Learn more about updating PHP</a>.' ),
+				esc_url( wp_get_update_php_url() )
+			);
+
+			$annotation = wp_get_update_php_annotation();
+
+			if ( $annotation ) {
+				$compat .= '</p><p><em>' . $annotation . '</em>';
+			}
+		}
+
 		// Get the upgrade notice for the new plugin version.
 		if ( isset($plugin_data->update->upgrade_notice) ) {
 			$upgrade_notice = '<br />' . strip_tags($plugin_data->update->upgrade_notice);
