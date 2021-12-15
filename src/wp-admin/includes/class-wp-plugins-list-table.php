@@ -38,7 +38,7 @@ class WP_Plugins_List_Table extends WP_List_Table {
 		) );
 
 		$status = 'all';
-		if ( isset( $_REQUEST['plugin_status'] ) && in_array( $_REQUEST['plugin_status'], array( 'active', 'inactive', 'recently_activated', 'upgrade', 'mustuse', 'dropins', 'search' ) ) )
+		if ( isset( $_REQUEST['plugin_status'] ) && in_array( $_REQUEST['plugin_status'], array( 'active', 'inactive', 'recently_activated', 'upgrade', 'mustuse', 'dropins', 'search', 'paused' ) ) )
 			$status = $_REQUEST['plugin_status'];
 
 		if ( isset($_REQUEST['s']) )
